@@ -97,7 +97,7 @@ class UserSerializer(serializers.ModelSerializer):
         mail.save()
 
         code = int(random.random()*1000000)
-        mobile = models.MobileVerification(user=user, code=code, created_time=timezone.now() + datetime.timedelta(minutes=10))
+        mobile = models.MobileVerification(user=user, code=code, created_time=timezone.now() + datetime.timedelta(minutes=10), mobile=mobile)
         mobile.save()
 
         # send verification mail to the user (presently not using celery, so send the mail directly)
@@ -114,9 +114,16 @@ class UserSerializer(serializers.ModelSerializer):
 
 class ProfileSerializer(serializers.ModelSerializer):
 
+    def validate_mobile(self, mobile):
+        if len(mobile) < 10:
+            raise serializers.ValidationError('Mobile number does not meet the requirements')
+        if models.Profile.objects.filter(mobile=mobile).exists():
+            raise serializers.ValidationError('Mobile number already chosen!')
+        return mobile
+
     class Meta:
         model = models.Profile
-        fields = ('mobile',)
+        fields = ('pk', 'mobile')
 
 
 class UserListSerializer(serializers.ModelSerializer):
@@ -147,23 +154,11 @@ class UserSettingSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Enter a valid email')
         if User.objects.filter(email=email).exclude(id=self.instance.id).exists():
             raise serializers.ValidationError('email already exists!')
+        if models.MailVerification.objects.filter(Q(mail_id=email), Q(mail_type=0)):
+            raise serializers.ValidationError('Verify the current mail first!!')
         return email
 
     def update(self, instance, validated_data):
-        # mobile number is updated, send a OTP
-        if instance.profile.mobile != validated_data['profile']['mobile']:
-            print(instance.user)
-            time = timezone.now() + datetime.timedelta(minutes=10)
-            code = int(random.random()*1000000)
-            mobile_verify = models.MobileVerification.objects.filter(user=instance.user)
-            if mobile_verify.exists():
-                mobile_verify[0].code = code
-                mobile_verify[0].created_time = time
-            else:
-                models.MobileVerification.objects.create(user=instance.user, code=code, created_time=time, status=True)
-
-            sendsms.sendsms(mobile=validated_data['profile']['mobile'], code=code)
-
         # email is changed, send a verification mail
         if instance.email != validated_data['email']:
             verify = models.MailVerification.objects.filter(Q(user=instance) & Q(mail_type=2))

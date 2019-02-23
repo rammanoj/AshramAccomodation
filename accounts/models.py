@@ -36,6 +36,7 @@ class MobileVerification(models.Model):
     code = models.CharField(max_length=20)
     created_time = models.DateTimeField(default=timezone.now())
     status = models.BooleanField(default=False)
+    mobile = models.CharField(max_length=20, null=True, blank=True)
 
     def __str__(self):
         return self.user.username

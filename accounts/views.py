@@ -1,11 +1,9 @@
 import datetime, random, string
 from _sha256 import sha256
-from collections import OrderedDict
 from json import loads
 from django.contrib.auth import authenticate, login
 from django.core.validators import validate_email
 from django.contrib.auth.models import User, Group
-from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
@@ -167,11 +165,17 @@ class MobileVerifyView(APIView):
     permission_classes = []
 
     def post(self, request, *args, **kwargs):
-        get_object_or_404(User, username=request.data['user'])
-        code = request.data['code']
-        verify = models.MobileVerification.objects.filter(Q(code=code), Q(user=get_object_or_404(User, username=request.data['user'])))
+        user = get_object_or_404(User, username=request.data['user'])
+        try:
+            code = request.data['code']
+        except KeyError:
+            return Response({'message': 'Enter the OTP', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+        verify = models.MobileVerification.objects.filter(Q(code=code), Q(user=user))
         if verify.exists():
             if verify[0].created_time > timezone.now():
+                print(verify[0].mobile)
+                user.profile.mobile = verify[0].mobile
+                user.profile.save()
                 verify.delete()
                 return Response({'message': 'Successfully verified', 'error': 0}, status=status.HTTP_200_OK)
             else:
@@ -219,7 +223,6 @@ class UserUpdateView(RetrieveUpdateAPIView):
             context.data['mobile_verified'] = False
         else:
             context.data['mobile_verified'] = True
-        print("Came here for returning context")
         return context
 
     def patch(self, request, *args, **kwargs):
@@ -234,7 +237,7 @@ class UserUpdateView(RetrieveUpdateAPIView):
                 return Response({'message': 'enter a valid data', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
             email_change, mobile_change = 0, 0
             if email != request.user.email:
-                if models.MailVerification.objects.filter(Q(email=email), Q(status=0)).exists():
+                if models.MailVerification.objects.filter(Q(mail_id=email), Q(mail_type=2)).exists():
                     return Response({'message': 'Verify the current mail', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
                 # user has changed the email, append the context
                 email_change = 1
@@ -242,14 +245,30 @@ class UserUpdateView(RetrieveUpdateAPIView):
             pass
 
         try:
-            mobile = request.data['mobile']
+            mobile = request.data['profile']['mobile']
+            request.data['profile']['mobile'] = request.user.profile.mobile
             if mobile != request.user.profile.mobile:
                 if models.MobileVerification.objects.filter(Q(user=request.user), Q(status=False)).exists():
                     return Response({'message': 'Verify the current mobile first', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-                # User has changed the mobile, append to context
+                # User has changed the mobile.
                 mobile_change = 1
         except KeyError:
             pass
+
+        if mobile_change == 1:
+            s = serializers.ProfileSerializer(data={'mobile': mobile})
+            s.is_valid(raise_exception=True)
+            # mobile number is updated, send a OTP
+            time, code = timezone.now() + datetime.timedelta(minutes=10), int(random.random() * 1000000)
+            mobile_verify = models.MobileVerification.objects.filter(user=request.user)
+            if mobile_verify.exists():
+                mobile_verify = mobile_verify[0]
+                mobile_verify.code, mobile_verify.created_time = code, time
+                mobile_verify.save()
+            else:
+                models.MobileVerification.objects.create(user=request.user, code=code, created_time=time,
+                                                         status=True, mobile=mobile)
+            sendsms.sendsms(mobile=mobile, code=code)
         context = super(UserUpdateView, self).patch(request, *args, **kwargs)
         if email_change == 1 and mobile_change == 1:
             context.data['message'] = 'A validation message is sent to your mobile and email'

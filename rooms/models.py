@@ -24,6 +24,10 @@ class Room(models.Model):
     room_type = models.CharField(choices=ROOM_TYPES, max_length=3, default='N-AC')
     available= models.BooleanField(default=True)
 
+    # Avialable values:
+    # True --> Not blocked, the user can apply
+    # False --> Blocked by admin for some purpose, should not be appeared in the search.
+
     def __str__(self):
         return self.room_no
 
@@ -35,6 +39,7 @@ class BookedUsers(models.Model):
     booked_date = models.DateTimeField(default=timezone.now())
 
 
+# In a single booking a user can book multiple rooms with different check_in and check_out dates with the below model.
 class Booking(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE)
     # All the bookings to the room will be deleted, if the room is deleted
@@ -42,10 +47,10 @@ class Booking(models.Model):
     check_in = models.DateTimeField()
     check_out = models.DateTimeField()
     status = models.IntegerField(default=1)
-    # Three values for attribute'status'
-    # -1 => Room is canceled by the users in past
-    # 0 => Room is not avilable (2 cases: 1. blocked, 2. Checked to room)
-    # 1 => Room is currently under usage.
+    # Three values for attribute 'status'
+    # -1 => Room is cancelled by the users. -->room is free for availability
+    # 0 => Room is not yet taken or empty out -->room is free for availability
+    # 1 => Room is currently under usage. -->room is busy
 
     reference = models.CharField(max_length=200)
     booked_by = models.ForeignKey(BookedUsers, on_delete=models.CASCADE)
@@ -60,3 +65,7 @@ class BookingPayment(models.Model):
     payment_method = models.CharField(max_length=40)
     status = models.BooleanField(default=False)
 
+
+#     cases in booking rooms:
+# 1. either the room is booked and living -- -1, cancelled -- 1
+# 2. if the room is free
