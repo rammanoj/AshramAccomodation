@@ -10,30 +10,14 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from knox.views import LoginView, LogoutView
 from rest_framework.decorators import api_view, permission_classes, authentication_classes
-from rest_framework.generics import CreateAPIView, ListAPIView, RetrieveUpdateAPIView, UpdateAPIView
+from rest_framework.generics import CreateAPIView, ListAPIView, RetrieveUpdateAPIView, UpdateAPIView, DestroyAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, filters
 from django.core.exceptions import ValidationError, ObjectDoesNotExist
 from rest_framework.views import APIView
 from accounts import models, serializers, mails, sendsms
 from knox.models import AuthToken
-
-
-# User Return NavBar
-class NavView(APIView):
-    admins_nav = ['Home', 'Rooms', 'Bookings', 'Profile', 'Logout']
-    devotee_nav = ['Home', 'Bookings', 'Profile', 'Logout']
-
-    def get(self, request, *args, **kwargs):
-        group = request.user.groups.all()[0].name
-        if group == 'Admin':
-            self.admins_nav[3] = request.user.username
-            return Response({'message': self.admins_nav,  'error': 0}, status=status.HTTP_200_OK)
-        else:
-            print(self.devotee_nav)
-            self.devotee_nav[2] = request.user.username
-            return Response({'message': self.devotee_nav, 'error': 0}, status=status.HTTP_200_OK)
 
 
 # User LoginView
@@ -49,26 +33,54 @@ class UserLoginView(LoginView):
         password = s.validated_data.get('password', None)
         remember_me = s.validated_data.get('remember_me', 0)
         user = None
+
+        # Validate if user provided username or password.
         try:
             validate_email(username_or_email)
             username = User.objects.filter(email=username_or_email)
+            getUser = username
             if username.exists():
-                user = authenticate(username=username[0].username, password=password)
+                username_or_email = username[0].username
         except ValidationError:
-            user = authenticate(username=username_or_email, password=password)
+            getUser = User.objects.filter(username=username_or_email)
 
+        if getUser.exists() and getUser[0].check_password(password):
+            user = getUser[0]
+            mail_verify = models.MailVerification.objects.filter(Q(user=user), Q(mail_type=0))
+            if mail_verify.exists():
+                mail = mail_verify[0]
+                mail.time_limit = timezone.now() + datetime.timedelta(days=1)
+                mail.hash_code = sha256((str(random.getrandbits(256)) + user.email).encode('utf-8')).hexdigest()
+                mail.save()
+                args, kwargs = [], {'mail_type': 1, 'id': mail.hash_code}
+                mails.main(to_mail=user.email, *args, **kwargs)
+                return Response({'message': 'Your mail Not verified, A verification mail sent to your mail, confirm it',
+                                 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+            mobile_verify = models.MobileVerification.objects.filter(user=user)
+            if mobile_verify.exists():
+                mobile = mobile_verify[0]
+                mobile.created_time = timezone.now() + datetime.timedelta(minutes=10)
+                mobile.code = random.randint(100001, 999999)
+                mobile.save()
+                sendsms.sendsms(mobile=mobile.mobile, code=mobile.code)
+                return Response({'message': mobile.mobile, 'error': -1}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = authenticate(username=username_or_email, password=password)
         if user is None:
             return Response({'message': 'No user found as per given credentials', 'error': 1},
                             status=status.HTTP_400_BAD_REQUEST)
+
         login(request, user)
         context = {}
         if remember_me == 0:
-            context['token'] = AuthToken.objects.create(user=user, expires=datetime.timedelta(days=1))
+            context['token'] = AuthToken.objects.create(user=user, expires=datetime.timedelta(days=7))
         else:
-            context['token'] = AuthToken.objects.create(user=user, expires=datetime.timedelta(days=30))
+            context['token'] = AuthToken.objects.create(user=user, expires=datetime.timedelta(days=90))
         context['error'] = 0
         context['user_id'] = user.pk
         context['user'] = user.groups.all()[0].name
+
         return Response(context, status=status.HTTP_200_OK)
 
 
@@ -78,7 +90,7 @@ class UserLogoutView(LogoutView):
 
     def post(self, request, format=None):
         super(UserLogoutView, self).post(request, format=None)
-        return Response({'message': 'successfully logged out!', 'error': 0})
+        return Response({'message': 'successfully logged out', 'error': 0})
 
 
 # Register Devotee
@@ -97,6 +109,60 @@ class UserCreateView(CreateAPIView):
         return Response({'message': 'Confirm your mobile along with the mail', 'error': 0})
 
 
+class GenerateAdminLink(APIView):
+    http_method_names = ['post', 'get']
+
+    def get(self, request, *args, **kwargs):
+        try:
+            link = request.data['link']
+        except KeyError:
+            return Response({'provide the valid link'})
+
+        l = models.AdminLink.objects.filter(link=link)
+        if (l.exists()) and (l[0].created_time + datetime.timedelta(minutes=30) > timezone.now()):
+            return Response({'error': 0}, status=status.HTTP_200_OK)
+        else:
+            return Response({'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+    def post(self, request, *args, **kwargs):
+        if request.user.groups.all()[0].name != 'Admin':
+            return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+        request.data['link'] = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(60))
+        s = serializers.AdminRegisterLinkGenerateSerializer(data=request.data)
+        s.is_valid(raise_exception=False)
+        s.validated_data['created_time'] = timezone.now()
+        s.validated_data['created_by'] = request.user
+        s.save()
+        return Response({'link': s.validated_data['link']}, status=status.HTTP_200_OK)
+
+
+# Register Admin
+class AdminCreateView(CreateAPIView):
+    permission_classes = []
+    authentication_classes = []
+    serializer_class = serializers.UserSerializer
+
+    def get_queryset(self):
+        return User.objects.all()
+
+    def create(self, request, *args, **kwargs):
+        try:
+            if request.data['user_type'] != 'Admin':
+                return Response({'message': "permission denied", 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+        except KeyError:
+            return Response({'message': 'Permission Denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+        link = get_object_or_404(models.AdminLink, link=self.kwargs['link'])
+        if link.created_time + datetime.timedelta(minutes=30) > timezone.now():
+            super(AdminCreateView, self).create(request, *args, **kwargs)
+            link.delete()
+            return Response({'message': 'Verify your mail and mobile', 'error': 0})
+        else:
+            link.delete()
+            return Response({'message': 'Link Expired', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
 @csrf_exempt
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -109,13 +175,20 @@ def MailVerificationView(request, id):
         context = {'message': 'Your time limit exceeded, please perform the operation again', 'error': 1,
                    'title': 'Mail Verification'}
         return render(request, 'accounts/mail_handle.html', context)
-    mail_verify.delete()
 
     context = {'message': 'Your mail successfully verified', 'error': 0}
+    if not mail_verify[0].user.is_active:
+        if not models.MobileVerification.objects.filter(user=mail_verify[0].user).exists():
+            user = mail_verify[0].user
+            user.is_active = True
+            user.save()
+    mail_verify.delete()
     return render(request, 'accounts/mail_handle.html', context)
 
 
 class send(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
     http_method_names = ['post']
 
     def post(self, request, *args, **kwargs):
@@ -141,20 +214,29 @@ class send(APIView):
         mail.save()
         kwargs = {'mail_type': 0, 'id': mail.hash_code}
         mails.main(to_mail=mail.mail_id, **kwargs)
-        return Response({'message': 'A mail has been sent, please verify it', 'error': 0},
+        return Response({'message': 'Verification mail sent to your account', 'error': 0},
                         status=status.HTTP_202_ACCEPTED)
 
 
 # Resend mobile verification
 class ResendMobileVerify(APIView):
     http_method_names = ['post']
+    authentication_classes = []
+    permission_classes = [AllowAny]
 
     def post(self, request, *args, **kwargs):
-        verify = get_object_or_404(models.MobileVerification, user=request.user)
+        try:
+            mobile = request.data['mobile']
+        except KeyError:
+            return Response({'message': 'Mobile number needed!!', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+        query = models.MobileVerification.objects.filter(mobile=mobile)
+        if not query.exists():
+            return Response({'message': 'Mobile number not found!!', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+        verify = query[0]
         verify.created_time = timezone.now() + datetime.timedelta(minutes=10)
-        verify.code = int(random.random()*1000000)
+        verify.code = random.randint(100001, 999999)
         verify.save()
-        sendsms.sendsms(request.user.profile.mobile, verify.code)
+        sendsms.sendsms(mobile, verify.code)
         return Response({'message': 'Message sent', 'error': 0}, status=status.HTTP_200_OK)
 
 
@@ -165,42 +247,29 @@ class MobileVerifyView(APIView):
     permission_classes = []
 
     def post(self, request, *args, **kwargs):
-        user = get_object_or_404(User, username=request.data['user'])
         try:
+            mobile = request.data['mobile']
             code = request.data['code']
         except KeyError:
             return Response({'message': 'Enter the OTP', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        verify = models.MobileVerification.objects.filter(Q(code=code), Q(user=user))
+        verify = models.MobileVerification.objects.filter(Q(code=code), Q(mobile=mobile))
         if verify.exists():
             if verify[0].created_time > timezone.now():
-                print(verify[0].mobile)
+                user = verify[0].user
                 user.profile.mobile = verify[0].mobile
                 user.profile.save()
+
+                if not verify[0].user.is_active:
+                    if not models.MailVerification.objects.filter(user=verify[0].user).exists():
+                        user = verify[0].user
+                        user.is_active = True
+                        user.save()
                 verify.delete()
                 return Response({'message': 'Successfully verified', 'error': 0}, status=status.HTTP_200_OK)
             else:
                 return Response({'message': 'OTP time expired', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
         else:
                 return Response({'message': 'Invalid OTP', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-
-
-class UserListView(ListAPIView):
-    serializer_class = serializers.UserListSerializer
-
-    def get_queryset(self):
-        try:
-            user_type = self.kwargs['user']
-            if user_type not in ['Admin', 'Devotee']:
-                return User.objects.none()
-            return Group.objects.get(name=user_type).user_set.all()
-        except KeyError:
-            return User.objects.all()
-
-    def get(self, request, *args, **kwargs):
-        if request.user.groups.all()[0].name != 'Admin':
-            return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        context = super(UserListView, self).get(request, *args, **kwargs)
-        return context
 
 
 class UserUpdateView(RetrieveUpdateAPIView):
@@ -213,22 +282,20 @@ class UserUpdateView(RetrieveUpdateAPIView):
         if self.get_object() != request.user and request.user.groups.all()[0].name != 'Admin':
             return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
         context = super(UserUpdateView, self).get(request, *args, **kwargs)
-        user = User.objects.get(pk=context.data['pk'])
-        if models.MailVerification.objects.filter(Q(user=user), Q(mail_type=0)).exists():
-            context.data['mail_verified'] = False
-        else:
-            context.data['mail_verified'] = True
-
-        if models.MobileVerification.objects.filter(Q(user=user), Q(status=False)).exists():
-            context.data['mobile_verified'] = False
-        else:
-            context.data['mobile_verified'] = True
         return context
 
     def patch(self, request, *args, **kwargs):
         if self.get_object() != request.user:
             return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
         mobile_change, email_change = 0, 0
+
+        try:
+            state = request.data['profile']['state']
+            if state != request.user.profile.state:
+                request.data['profile']['state'] = request.user.profile.state
+        except KeyError:
+            pass
+
         try:
             email = request.data['email']
             try:
@@ -237,8 +304,6 @@ class UserUpdateView(RetrieveUpdateAPIView):
                 return Response({'message': 'enter a valid data', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
             email_change, mobile_change = 0, 0
             if email != request.user.email:
-                if models.MailVerification.objects.filter(Q(mail_id=email), Q(mail_type=2)).exists():
-                    return Response({'message': 'Verify the current mail', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
                 # user has changed the email, append the context
                 email_change = 1
         except KeyError:
@@ -248,8 +313,6 @@ class UserUpdateView(RetrieveUpdateAPIView):
             mobile = request.data['profile']['mobile']
             request.data['profile']['mobile'] = request.user.profile.mobile
             if mobile != request.user.profile.mobile:
-                if models.MobileVerification.objects.filter(Q(user=request.user), Q(status=False)).exists():
-                    return Response({'message': 'Verify the current mobile first', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
                 # User has changed the mobile.
                 mobile_change = 1
         except KeyError:
@@ -259,15 +322,16 @@ class UserUpdateView(RetrieveUpdateAPIView):
             s = serializers.ProfileSerializer(data={'mobile': mobile})
             s.is_valid(raise_exception=True)
             # mobile number is updated, send a OTP
-            time, code = timezone.now() + datetime.timedelta(minutes=10), int(random.random() * 1000000)
+            time, code = timezone.now() + datetime.timedelta(minutes=10), random.randint(100000, 999999)
             mobile_verify = models.MobileVerification.objects.filter(user=request.user)
             if mobile_verify.exists():
                 mobile_verify = mobile_verify[0]
-                mobile_verify.code, mobile_verify.created_time = code, time
+                mobile_verify.code = code
+                mobile_verify.created_time = time
+                mobile_verify.mobile = mobile
                 mobile_verify.save()
             else:
-                models.MobileVerification.objects.create(user=request.user, code=code, created_time=time,
-                                                         status=True, mobile=mobile)
+                models.MobileVerification.objects.create(user=request.user, code=code, created_time=time, mobile=mobile)
             sendsms.sendsms(mobile=mobile, code=code)
         context = super(UserUpdateView, self).patch(request, *args, **kwargs)
         if email_change == 1 and mobile_change == 1:
@@ -305,7 +369,7 @@ class UserPasswordUpdateView(UpdateAPIView):
 class ForgotUserPasswordUpdateView(UpdateAPIView):
     authentication_classes = []
     permission_classes = []
-    serializer_class = serializers.ForgotPasswordUpdateView
+    serializer_class = serializers
     http_method_names = ['get', 'post']
 
     def get_queryset(self):
@@ -376,7 +440,7 @@ def password_forgot(request):
                         time_limit=(datetime.datetime.now().date() + datetime.timedelta(days=1)), mail_type=2).save()
     kwargs = {'mail_type': 2, 'id': hash_code}
     mails.main(to_mail=email, **kwargs)
-    return Response({'message': 'Check your mail', 'error': 0}, status=status.HTTP_200_OK)
+    return Response({'message': 'Verification mail sent, confirm it.', 'error': 0}, status=status.HTTP_200_OK)
 
 
 class EmailChangeVerifyView(APIView):
@@ -408,42 +472,36 @@ class EmailChangeVerifyView(APIView):
                 return render(request, 'accounts/mail_handle.html', context)
 
 
-class GenerateAdminLink(APIView):
-    http_method_names = ['post', 'get']
-
-    def post(self, request, *args, **kwargs):
-        if request.user.groups.all()[0].name != 'Admin':
-            return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        request.data['link'] = ''.join(random.choice(string.ascii_lowercase + string.digits) for _ in range(60))
-        s = serializers.AdminRegisterLinkGenerateSerializer(data=request.data)
-        s.is_valid(raise_exception=False)
-        s.validated_data['created_time'] = timezone.now()
-        s.validated_data['created_by'] = request.user
-        s.save()
-        return Response({'link': s.validated_data['link']}, status=status.HTTP_200_OK)
-
-
-# Register Admin
-class AdminCreateView(CreateAPIView):
-    permission_classes = []
-    authentication_classes = []
-    serializer_class = serializers.UserSerializer
+class UserListView(ListAPIView):
+    serializer_class = serializers.UserListSerializer
+    filter_backends = (filters.SearchFilter,)
+    search_fields = ('username',)
 
     def get_queryset(self):
-        return User.objects.all()
-
-    def create(self, request, *args, **kwargs):
-        try:
-            if request.data['user_type'] != 'Admin':
-                return Response({'message': "permission denied", 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        except KeyError:
-            return Response({'message': 'Permission Denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-
-        link = get_object_or_404(models.AdminLink, link=self.kwargs['link'])
-        if link.created_time + datetime.timedelta(minutes=30) > timezone.now():
-            super(AdminCreateView, self).create(request, *args, **kwargs)
-            link.delete()
-            return Response({'message': 'Verify your mail and mobile', 'error': 0})
+        if self.kwargs['user_type'] not in ['Admin', 'Devotee']:
+            return get_object_or_404(User, pk=-1)
         else:
-            link.delete()
-            return Response({'message': 'Link Expired', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+            return User.objects.filter(groups__name=self.kwargs['user_type'])
+
+    def get(self, request, *args, **kwargs):
+        if request.user.groups.all()[0].name != 'Admin':
+            return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+        return super(UserListView, self).get(request, *args, **kwargs)
+
+
+class UserDetailView(DestroyAPIView):
+    serializer_class = serializers
+    http_method_names = ['delete']
+
+    def get_object(self):
+        return get_object_or_404(User, pk=self.kwargs['user_id'])
+
+    def delete(self, request, *args, **kwargs):
+        if request.user.groups.all()[0].name != 'Admin':
+            return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+        if request.user == self.get_object():
+            return Response({'message': 'You can\'t delete yourself'})
+
+        super(UserDetailView, self).delete(request, *args, **kwargs)
+        return Response({'message': 'Successfully deleted the user', 'error': 0}, status=status.HTTP_200_OK)

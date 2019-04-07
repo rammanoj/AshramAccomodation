@@ -97,7 +97,8 @@ class UserSerializer(serializers.ModelSerializer):
         mail.save()
 
         code = int(random.random()*1000000)
-        mobile = models.MobileVerification(user=user, code=code, created_time=timezone.now() + datetime.timedelta(minutes=10), mobile=mobile)
+        mobile = models.MobileVerification(user=user, code=code, created_time=timezone.now() + datetime.timedelta(minutes=10),
+                                           mobile=validated_data['mobile'])
         mobile.save()
 
         # send verification mail to the user (presently not using celery, so send the mail directly)

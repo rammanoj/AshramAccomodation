@@ -53,47 +53,51 @@ class RoomListView(ListAPIView):
         context = super(RoomListView, self).get(request, *args, **kwargs)
         booked_rooms = models.Room.objects.filter(booking__status=1)
         for i in context.data['results']:
-            i['booked'] = booked_rooms.filter(room_no=i['room_no']).exists()
+            i['booked'] = booked_rooms.filter(Q(room_no=i['room_no']), Q(block=i['block'])).exists()
         return context
 
     def post(self, request, *args, **kwargs):
         rooms = models.Room.objects.all()
         try:
-            start_date = request.data['start_date']
-            end_date = request.data['end_date']
-            booked_rooms = models.Room.objects.filter(Q(booking__status=0), Q(booking__status=1))
-            free_rooms = booked_rooms.filter(Q(Q(booking__check_in__gt=start_date), Q(booking__check_in__gt=end_date))
-                                                | Q(booking__check_in__lt=end_date), Q(booking__check_out__lt=start_date))
-            booked_rooms = booked_rooms.exclude(free_rooms)
-            rooms = rooms.exclude(booked_rooms)
+            start_date = timezone.make_aware(datetime.datetime.strptime(request.data['start_date'], '%Y-%m-%d'))
+            end_date = timezone.make_aware(datetime.datetime.strptime(request.data['end_date'], '%Y-%m-%d'))
+            if start_date + datetime.timedelta(days=1) <= timezone.now() or end_date < timezone.now():
+                return Response({'message': 'Enter valid dates!!', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+            booked_rooms = models.Room.objects.filter(Q(booking__status=0) | Q(booking__status=1)).exclude(Q
+                                            (Q(booking__check_in__gt=start_date), Q(booking__check_in__gt=end_date))
+                                            | Q(Q(booking__check_out__lt=end_date), Q(booking__check_out__lt=start_date)))
+
+            rooms = rooms.difference(booked_rooms)
         except KeyError:
             return Response({'message': 'Fill the form completely!!', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
         self.queryset = rooms
-        return super(RoomListView, self).post(request, *args, **kwargs)
+        return super(RoomListView, self).get(request, *args, **kwargs)
 
 
-class RoomCreateSerializer(CreateAPIView):
+class RoomCreateView(CreateAPIView):
     serializer_class = serializers.RoomSerializer
 
     def post(self, request, *args, **kwargs):
         if request.user.groups.all()[0].name != 'Admin':
             return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        super(RoomCreateSerializer, self).post(request, *args, **kwargs)
+        super(RoomCreateView, self).post(request, *args, **kwargs)
         return Response({'message': 'Successfully created room', 'error': 0}, status=status.HTTP_200_OK)
 
 
-class RoomRetrieveUpdateDeleteSerializer(RetrieveUpdateDestroyAPIView):
+class RoomRetrieveUpdateDeleteView(RetrieveUpdateDestroyAPIView):
     serializer_class = serializers.RoomSerializer
+    queryset = models.Room.objects.all()
 
     def update(self, request, *args, **kwargs):
         if request.user.groups.all()[0].name != 'Admin':
             return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        return super(RoomRetrieveUpdateDeleteSerializer, self).post(request, *args, **kwargs)
+        return super(RoomRetrieveUpdateDeleteView, self).update(request, *args, **kwargs)
 
     def delete(self, request, *args, **kwargs):
         if request.user.groups.all()[0].name != 'Admin':
             return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        super(RoomRetrieveUpdateDeleteSerializer, self).post(request, *args, **kwargs)
+        super(RoomRetrieveUpdateDeleteView, self).delete(request, *args, **kwargs)
         return Response({'message': 'Successfully Deleted!', 'error': 1}, status=status.HTTP_200_OK)
 
 # End of Room Views
@@ -112,7 +116,6 @@ class RoomBookingListCreateView(ListCreateAPIView):
 
     def post(self, request, *args, **kwargs):
         # Check if the Admin entered the username while making a offline booking.
-        request.data['user'] = request.user
         if request.user.groups.all()[0].name == 'Admin':
             try:
                 username = request.data['username']
@@ -163,6 +166,11 @@ class RoomReportView(APIView):
     http_method_names = ['post']
 
     def post(self, request, *args, **kwargs):
+        # Frontend Changes:
+        # If 0, enter date >= today => devotee checkedIn
+        # If 1, devotee checked out
+        # If -1, no other option to be displayed.
+        # If 0, enter date <= today => devotee checkedOut already hence no change.
         try:
             reference = request.data['reference']
             room = request.data['room']
@@ -170,10 +178,14 @@ class RoomReportView(APIView):
         except KeyError:
             return Response({'message': 'Something went wrong, Try again later', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
 
-        booking = models.Booking.objects.filter(Q(reference=reference), Q(room=room))
+        booking = models.Booking.objects.filter(Q(reference=reference), Q(room__room_no=room))
+
+        if request.user.groups.all()[0].name != 'Admin' and booking[0].booked_by != request.user:
+            return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
         if booking.exists():
-            booking.status = room_status
-            booking.save()
+            room_booking = booking[0]
+            room_booking.status = room_status
+            room_booking.save()
         else:
             return Response({'message': 'No such booking is performed!!', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
         return Response({'message': 'Successfully done', 'error': 0})

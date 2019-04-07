@@ -3,8 +3,6 @@ from . import views
 
 
 urlpatterns = [
-    # navbar
-    url('^navbar/$', views.NavView.as_view(), name='navbar'),
 
     # User Authentication
     url('^login/$', views.UserLoginView.as_view(), name='login'),
@@ -20,8 +18,7 @@ urlpatterns = [
     url(r'^resend/$', views.send.as_view(), name='resend'),
 
     # users ListView
-    url(r'^users/$', views.UserListView.as_view(), name='user-list'),
-    url(r'^users/(?P<user>\w+)/$', views.UserListView.as_view(), name='user-list'),
+    url(r'^users/(?P<user_type>\w+)/$', views.UserListView.as_view(), name='user-list'),
 
 
     # update user

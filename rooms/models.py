@@ -21,20 +21,23 @@ class Room(models.Model):
     block = models.ForeignKey(Block, on_delete=models.CASCADE)
     floor = models.IntegerField(default=0)
     capacity = models.IntegerField(default=1)
-    room_type = models.CharField(choices=ROOM_TYPES, max_length=3, default='N-AC')
-    available= models.BooleanField(default=True)
+    room_type = models.CharField(choices=ROOM_TYPES, max_length=5, default='N-AC')
+    available = models.BooleanField(default=True)
 
     # Avialable values:
     # True --> Not blocked, the user can apply
     # False --> Blocked by admin for some purpose, should not be appeared in the search.
 
+    class Meta:
+        unique_together=(('room_no', 'block'),)
+
     def __str__(self):
-        return self.room_no
+        return self.room_no + " -- " + self.block.name
 
 
 class BookedUsers(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, default=None, blank=True)
-    username = models.CharField(max_length=40, default=None,blank=True)
+    username = models.CharField(max_length=40, null=True, blank=True)
     id_proof = models.FileField(upload_to='uploads/id_proofs/')
     booked_date = models.DateTimeField(default=timezone.now())
 
@@ -49,8 +52,8 @@ class Booking(models.Model):
     status = models.IntegerField(default=1)
     # Three values for attribute 'status'
     # -1 => Room is cancelled by the users. -->room is free for availability
-    # 0 => Room is not yet taken or empty out -->room is free for availability
-    # 1 => Room is currently under usage. -->room is busy
+    # 0 => Room is not yet taken or empty out -->room is busy on those dates
+    # 1 => Room is currently under usage. -->room is busy on those dates
 
     reference = models.CharField(max_length=200)
     booked_by = models.ForeignKey(BookedUsers, on_delete=models.CASCADE)
