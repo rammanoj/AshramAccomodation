@@ -161,22 +161,27 @@ class UserSettingSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         # email is changed, send a verification mail
-        if instance.email != validated_data['email']:
-            verify = models.MailVerification.objects.filter(Q(user=instance) & Q(mail_type=2))
-            if verify.exists():
-                mail = verify[:1].get()
-                mail.email = validated_data['email']
-                mail.time_limit = datetime.datetime.now().date() + datetime.timedelta(days=1)
-                mail.save()
-                hash_code = mail.hash_code
-            else:
-                hash_code = sha256((str(random.getrandbits(256)) + validated_data['email']).encode('utf-8')).hexdigest()
-                mail = models.MailVerification(user=instance, hash_code=hash_code, mail_id=validated_data['email'],
-                            time_limit=(datetime.datetime.now().date() + datetime.timedelta(days=1)), mail_type=2)
-                mail.save()
-            kwargs = {'mail_type': 1, 'id': hash_code}
-            mails.main(to_mail=validated_data['email'], **kwargs)
-            validated_data['email'] = instance.email
+        try:
+            if instance.email != validated_data['email']:
+                verify = models.MailVerification.objects.filter(Q(user=instance) & Q(mail_type=2))
+                if verify.exists():
+                    mail = verify[:1].get()
+                    mail.email = validated_data['email']
+                    mail.time_limit = datetime.datetime.now().date() + datetime.timedelta(days=1)
+                    mail.save()
+                    hash_code = mail.hash_code
+                else:
+                    hash_code = sha256(
+                        (str(random.getrandbits(256)) + validated_data['email']).encode('utf-8')).hexdigest()
+                    mail = models.MailVerification(user=instance, hash_code=hash_code, mail_id=validated_data['email'],
+                                                   time_limit=(datetime.datetime.now().date() + datetime.timedelta(
+                                                       days=1)), mail_type=2)
+                    mail.save()
+                kwargs = {'mail_type': 1, 'id': hash_code}
+                mails.main(to_mail=validated_data['email'], **kwargs)
+                validated_data['email'] = instance.email
+        except KeyError:
+            pass
         return super(UserSettingSerializer, self).update(instance, validated_data)
 
     class Meta:

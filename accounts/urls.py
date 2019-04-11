@@ -18,7 +18,7 @@ urlpatterns = [
     url(r'^resend/$', views.send.as_view(), name='resend'),
 
     # users ListView
-    url(r'^users/(?P<user_type>\w+)/$', views.UserListView.as_view(), name='user-list'),
+    url(r'^users/$', views.UserListView.as_view(), name='user-list'),
 
 
     # update user
@@ -38,5 +38,6 @@ urlpatterns = [
 
     # AdminLinkGenerate and Register urls
     url(r'^admin-link/$', views.GenerateAdminLink.as_view()),
+    url(r'^validate/adminlink/$', views.ValidateAdminLink.as_view()),
     url(r'^admin-register/(?P<link>\w+)/$', views.AdminCreateView.as_view())
 ]

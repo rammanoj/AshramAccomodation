@@ -35,40 +35,23 @@ class Room(models.Model):
         return self.room_no + " -- " + self.block.name
 
 
-class BookedUsers(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, default=None, blank=True)
-    username = models.CharField(max_length=40, null=True, blank=True)
-    id_proof = models.FileField(upload_to='uploads/id_proofs/')
-    booked_date = models.DateTimeField(default=timezone.now())
-
-
-# In a single booking a user can book multiple rooms with different check_in and check_out dates with the below model.
-class Booking(models.Model):
-    room = models.ForeignKey(Room, on_delete=models.CASCADE)
-    # All the bookings to the room will be deleted, if the room is deleted
-
-    check_in = models.DateTimeField()
-    check_out = models.DateTimeField()
-    status = models.IntegerField(default=1)
-    # Three values for attribute 'status'
-    # -1 => Room is cancelled by the users. -->room is free for availability
-    # 0 => Room is not yet taken or empty out -->room is busy on those dates
-    # 1 => Room is currently under usage. -->room is busy on those dates
-
-    reference = models.CharField(max_length=200)
-    booked_by = models.ForeignKey(BookedUsers, on_delete=models.CASCADE)
+class Bookings(models.Model):
+    reference = models.CharField(max_length=250, null=True, blank=True)
+    rooms = models.ManyToManyField(Room, null=True, blank=True)
+    start_date = models.DateTimeField(null=True, blank=True)
+    end_date = models.DateTimeField(null=True, blank=True)
+    booked_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    booking_type = models.BooleanField(default=False)
+    user_booked = models.CharField(max_length=40, null=True, blank=True)
 
     def __str__(self):
-        return self.room.room_no + " " + self.booked_by.user.username
+        return self.reference
 
 
-class BookingPayment(models.Model):
-    reference = models.ForeignKey(BookedUsers, on_delete=models.CASCADE)
-    amount = models.CharField(max_length=20)
-    payment_method = models.CharField(max_length=40)
-    status = models.BooleanField(default=False)
+class BlockedRooms(models.Model):
+    room_no = models.ForeignKey(Room, on_delete=models.CASCADE, unique=True)
+    blocked_by = models.ForeignKey(User, on_delete=models.CASCADE, unique=True)
+    blocked_on = models.DateTimeField()
 
-
-#     cases in booking rooms:
-# 1. either the room is booked and living -- -1, cancelled -- 1
-# 2. if the room is free
+    def __str__(self):
+        return self.room_no.__str__()

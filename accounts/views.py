@@ -109,20 +109,26 @@ class UserCreateView(CreateAPIView):
         return Response({'message': 'Confirm your mobile along with the mail', 'error': 0})
 
 
-class GenerateAdminLink(APIView):
-    http_method_names = ['post', 'get']
+class ValidateAdminLink(APIView):
+    authentication_classes = []
+    permission_classes = []
+    http_method_names = ['post']
 
-    def get(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         try:
             link = request.data['link']
         except KeyError:
-            return Response({'provide the valid link'})
+            return Response({'error': 1})
 
         l = models.AdminLink.objects.filter(link=link)
         if (l.exists()) and (l[0].created_time + datetime.timedelta(minutes=30) > timezone.now()):
             return Response({'error': 0}, status=status.HTTP_200_OK)
         else:
             return Response({'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class GenerateAdminLink(APIView):
+    http_method_names = ['post']
 
     def post(self, request, *args, **kwargs):
         if request.user.groups.all()[0].name != 'Admin':
@@ -478,10 +484,7 @@ class UserListView(ListAPIView):
     search_fields = ('username',)
 
     def get_queryset(self):
-        if self.kwargs['user_type'] not in ['Admin', 'Devotee']:
-            return get_object_or_404(User, pk=-1)
-        else:
-            return User.objects.filter(groups__name=self.kwargs['user_type'])
+            return User.objects.all()
 
     def get(self, request, *args, **kwargs):
         if request.user.groups.all()[0].name != 'Admin':
