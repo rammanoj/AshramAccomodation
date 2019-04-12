@@ -13,8 +13,13 @@ urlpatterns = [
 
     url('^search/', views.searchRooms),
 
-    # # Booking Views
+    # Booking Views
     url('^book/$', views.RoomBookingView),
+
+    # User Room Bookings
+    url('^bookings/$', views.UserBookingsView.as_view()),
+
+    url('^booking/delete/(?P<pk>\d+)/$', views.UserBookingDeleteView.as_view())
 
 ]
 

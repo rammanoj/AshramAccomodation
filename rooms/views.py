@@ -1,24 +1,27 @@
+import json
 import string
+import sys
 from random import choice
-
 from django.db import transaction
 from django.db.models import Q
-from django.shortcuts import get_object_or_404
 import datetime
 
+from django.http import JsonResponse
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
+from rest_framework.decorators import renderer_classes, api_view, authentication_classes, permission_classes
+from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
 from rest_framework.response import Response
-from rest_framework.views import APIView
-
 from . import serializers, models
-from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, CreateAPIView
+from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, CreateAPIView, \
+    DestroyAPIView
 
 
 # Checking function
 def checkRoomAvialability(start_date, end_date, rooms):
-    include = [True] * rooms
-    blocked_rooms = models.BlockedRooms.objects.all().values_list('room_no')
+    include = [True] * len(rooms)
+    blocked_rooms = list(models.BlockedRooms.objects.all().values_list('room_no'))
 
     # Exclude the blocked rooms from the list
     for i in blocked_rooms:
@@ -27,15 +30,19 @@ def checkRoomAvialability(start_date, end_date, rooms):
 
     # Exclude the booked rooms from the list
     booked_rooms = models.Bookings.objects.filter(rooms__room_no__in=rooms)
-    for i in booked_rooms:
-        rooms_booked = list(set(rooms).intersection(i.rooms))
-        if len(rooms_booked) != 0:
-            for j in rooms_booked:
-                if (i.start_date < start_date and i.end_date < start_date) or (i.start_date > end_date
-                                                                               and i.end_date > end_date):
-                    pass
-                else:
-                    include[rooms.index(j)] = False
+    if booked_rooms.exists():
+        for i in booked_rooms:
+            if i.rooms is None:
+                continue
+            bookedroom = list(i.rooms.values_list('room_no', flat=True))
+            rooms_booked = list(set(rooms).intersection(bookedroom))
+            if len(rooms_booked) != 0:
+                for j in rooms_booked:
+                    if (i.start_date < start_date and i.end_date < start_date) or (i.start_date > end_date
+                                                                                   and i.end_date > end_date):
+                        pass
+                    else:
+                        include[rooms.index(j)] = False
     return include
 
 
@@ -136,50 +143,138 @@ class RoomRetrieveUpdateDeleteView(RetrieveUpdateDestroyAPIView):
 
 # Bookings views.
 
+@csrf_exempt
+@api_view(('POST',))
 def RoomBookingView(request):
     try:
         rooms = request.data['rooms']
-        start_date = request.data['start_date']
-        end_date = request.data['end_date']
+        members = request.data['members']
+        start_date = datetime.datetime.strptime(request.data['start_date'], "%Y/%m/%d %I:%M %p")
+        end_date = datetime.datetime.strptime(request.data['end_date'], "%Y/%m/%d %I:%M %p")
         booked_by = request.user
         booking_type = request.data['booking_type']
     except KeyError:
         return Response({'message': 'Fill the form completely', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
 
-    avialable = checkRoomAvialability(start_date, end_date, rooms)
-    if all(i is True for i in avialable):
+    if booking_type == 'Offline' and request.user.groups.all()[0].name != 'Admin':
+        return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+    if len(rooms) != 0:
+        avialable = checkRoomAvialability(start_date, end_date, rooms)
+
+        if all(i is True for i in avialable):
+            reference = ''.join([choice(string.ascii_letters + string.digits) for i in range(22)])
+            with transaction.atomic():
+                booking = models.Bookings.objects.create(reference=reference, start_date=start_date,
+                                                         end_date=end_date, booked_by=booked_by)
+                if booking_type == 'Online':
+                    booking.booking_type = True
+                else:
+                    booking.booking_type = False
+                    booking.user_booked = request.data['user_booked']
+
+                for i in rooms:
+                    room = models.Room.objects.get(room_no=i)
+                    booking.rooms.add(room)
+
+                booking.save()
+            return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
+        else:
+            return Response({'message': 'room ' + rooms[avialable.index(False)] + ' is already booked', 'error': 1},
+                            status=status.HTTP_400_BAD_REQUEST)
+    else:
+        rooms = list(models.Room.objects.all().values_list('room_no', flat=True))
+        avialable = checkRoomAvialability(start_date, end_date, rooms)
+        avialable_rooms = []
+        for i in range(0, len(rooms)):
+            if avialable[i] is True:
+                avialable_rooms.append(models.Room.objects.get(room_no=rooms[i]))
+
+        avialable_rooms.sort(key=lambda x: x.capacity, reverse=True)
+
+        capacity, rv_rooms, remove_rooms = members, [], []
+        for i in avialable_rooms:
+            capacity = capacity - i.capacity
+            if capacity < 0:
+                capacity = capacity + i.capacity
+                try:
+                    new_avialable = list(set(avialable_rooms) - set(remove_rooms))
+                    v = min(new_avialable, key=lambda x: (x.capacity - capacity)
+                            if (x.capacity - capacity) >= 0 else sys.maxsize)
+                    capacity = capacity - v.capacity
+                    rv_rooms.append(v)
+                except ValueError:
+                    pass
+                break
+            rv_rooms.append(i)
+            remove_rooms.append(i)
+
+        if (len(avialable_rooms) == 0 and capacity > 0) or capacity > 0:
+            return Response({'message': 'Rooms not avialable for specified constraints', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
         reference = ''.join([choice(string.ascii_letters + string.digits) for i in range(22)])
         with transaction.atomic():
             booking = models.Bookings.objects.create(reference=reference, start_date=start_date,
                                                      end_date=end_date, booked_by=booked_by)
             if booking_type == 'Online':
-                booking.booking_type = "Online"
+                booking.booking_type = True
             else:
-                booking.booking_type = "Offline"
+                booking.booking_type = False
                 booking.user_booked = request.data['user_booked']
 
-            for i in rooms:
-                room = models.Room.objects.get(room_no=i)
-                booking.rooms.add(room)
-    else:
-        return Response({'message': 'room ' + rooms[avialable.index(False)] + ' is already booked', 'error': 1},
-                        status=status.HTTP_400_BAD_REQUEST)
+            for i in rv_rooms:
+                booking.rooms.add(i)
+
+            booking.save()
+        return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
 
 
+@csrf_exempt
+@api_view(('POST',))
+@authentication_classes([])
+@permission_classes([])
 def searchRooms(request):
-    try:
-        start_date = request.data['start_date']
-        end_date = request.data['end_date']
-        rooms = models.Room.objects.all().values_list('room_no')
-        avialable = checkRoomAvialability(start_date, end_date, rooms)
-        rv = []
-        for i in range(0, len(rooms + 1)):
-            if avialable[i] is True:
-                rv.append({"room": rooms[i]})
-        return Response(rooms)
-    except KeyError:
-        return Response({'message': 'fill form completely'}, status=status.HTTP_400_BAD_REQUEST)
+    if request.method == "POST":
+        try:
+            # Converting Bytes like object to String
+            data = json.loads(request.body.decode('utf-8'))
+            start_datetime = datetime.datetime.strptime(data['start_date'], "%Y/%m/%d %I:%M %p")
+            end_datetime = datetime.datetime.strptime(data['end_date'], "%Y/%m/%d %I:%M %p")
+            rooms = list(models.Room.objects.all().values_list('room_no', flat=True))
+            avialable = checkRoomAvialability(start_datetime, end_datetime, rooms)
+            rv = []
+            for i in range(0, len(rooms)):
+                if avialable[i] is True:
+                    room = models.Room.objects.get(room_no=rooms[i])
+                    rv.append({"room": room.room_no, "capacity": room.capacity, "block": room.block.name})
 
+            return Response({"rooms": rv})
+        except KeyError:
+            return Response({'message': 'fill form completely'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class UserBookingsView(ListAPIView):
+    serializer_class = serializers.UserBookingSerializer
+
+    def get_queryset(self):
+        user_type = self.request.user.groups.all()[0].name
+        if user_type == 'Admin':
+            return models.Bookings.objects.all().order_by('start_date')
+        else:
+            return models.Bookings.objects.filter(booked_by=self.request.user).order_by('start_date')
+
+
+class UserBookingDeleteView(DestroyAPIView):
+
+    def delete(self, request, *args, **kwargs):
+        if request.user != "Admin":
+            booking = models.Bookings.objects.filter(pk=self.kwargs['pk'])
+            if booking.exists():
+                if booking[0].booked_by != request.user:
+                    return Response({'message': 'Permission Denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+        models.Bookings.objects.filter(pk=self.kwargs['pk']).delete()
+        return Response({'message': 'successfully deleted', 'error': 0})
 
 
 # class RoomBookingListCreateView(ListCreateAPIView):

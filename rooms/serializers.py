@@ -8,26 +8,6 @@ from . import models
 from rest_framework import serializers
 
 
-# class BookingSerializer(serializers.ModelSerializer):
-#
-#     class Meta:
-#         model = models.Booking
-#         fields = ['pk', 'room', 'check_in', 'booked_date', 'check_out', 'reference']
-#         read_only_fields = ['pk']
-#
-#
-# class BookedUsers(serializers.ModelSerializer):
-#     rooms = BookingSerializer(many=True)
-#
-#     def update(self, instance, validated_data):
-#         room = validated_data.get('rooms', None)
-#         pass
-#
-#     class Meta:
-#         model = models.BookedUsers
-#         fields = ['pk', 'user', 'username', 'id_proof', 'rooms']
-
-
 class BlockSerializer(serializers.ModelSerializer):
 
     class Meta:
@@ -37,10 +17,19 @@ class BlockSerializer(serializers.ModelSerializer):
 
 
 class RoomListSerializer(serializers.ModelSerializer):
+    block = BlockSerializer()
 
     class Meta:
         model = models.Room
         fields = ['pk', 'room_no', 'block', 'available']
+
+
+class UserBookingSerializer(serializers.ModelSerializer):
+    rooms = RoomListSerializer(many=True)
+
+    class Meta:
+        model = models.Bookings
+        fields = '__all__'
 
 
 class RoomSerializer(serializers.ModelSerializer):
