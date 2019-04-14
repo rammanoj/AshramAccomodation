@@ -29,7 +29,7 @@ def checkRoomAvialability(start_date, end_date, rooms):
             include[rooms.index(i)] = False
 
     # Exclude the booked rooms from the list
-    booked_rooms = models.Bookings.objects.filter(rooms__room_no__in=rooms)
+    booked_rooms = models.Bookings.objects.filter(rooms__room_no__in=rooms).distinct()
     if booked_rooms.exists():
         for i in booked_rooms:
             if i.rooms is None:
@@ -84,33 +84,25 @@ class BlockRetrieveUpdateDesroyView(RetrieveUpdateDestroyAPIView):
 
 class RoomListView(ListAPIView):
     serializer_class = serializers.RoomListSerializer
-    queryset = models.Room.objects.all()
+
+    def get_queryset(self):
+        data = self.request.GET.get('search', None)
+        if data is None:
+            return models.Room.objects.all()
+        else:
+            return models.Room.objects.filter(room_no__contains=data)
 
     def get(self, request, *args, **kwargs):
         if request.user.groups.all()[0].name != 'Admin':
             return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
         context = super(RoomListView, self).get(request, *args, **kwargs)
-        for i in context.data['results']:
-            i['blocked'] = models.BlockedRooms.objects.filter(room_no=i['room_no']).exists()
+        now = timezone.now()
+        avialable = checkRoomAvialability(now, now + datetime.timedelta(days=1),
+                                          list(self.get_queryset().values_list('room_no', flat=True)))
+        for i in range(0, len(context.data['results'])):
+            context.data['results'][i]['avialable'] = avialable[i]
         return context
-
-    def post(self, request, *args, **kwargs):
-        rooms = models.Room.objects.all()
-        try:
-            start_date = timezone.make_aware(datetime.datetime.strptime(request.data['start_date'], '%Y-%m-%d'))
-            end_date = timezone.make_aware(datetime.datetime.strptime(request.data['end_date'], '%Y-%m-%d'))
-            if start_date + datetime.timedelta(days=1) <= timezone.now() or end_date < timezone.now():
-                return Response({'message': 'Enter valid dates!!', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-
-            booked_rooms = models.Room.objects.filter(Q(booking__status=0) | Q(booking__status=1)).exclude(Q
-                                            (Q(booking__check_in__gt=start_date), Q(booking__check_in__gt=end_date))
-                                            | Q(Q(booking__check_out__lt=end_date), Q(booking__check_out__lt=start_date)))
-
-            rooms = rooms.difference(booked_rooms)
-        except KeyError:
-            return Response({'message': 'Fill the form completely!!', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        self.queryset = rooms
-        return super(RoomListView, self).get(request, *args, **kwargs)
 
 
 class RoomCreateView(CreateAPIView):
@@ -132,11 +124,18 @@ class RoomRetrieveUpdateDeleteView(RetrieveUpdateDestroyAPIView):
             return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
         return super(RoomRetrieveUpdateDeleteView, self).update(request, *args, **kwargs)
 
+
+class RoomDeleteView(DestroyAPIView):
+
     def delete(self, request, *args, **kwargs):
         if request.user.groups.all()[0].name != 'Admin':
             return Response({'message': 'Permission denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        super(RoomRetrieveUpdateDeleteView, self).delete(request, *args, **kwargs)
-        return Response({'message': 'Successfully Deleted!', 'error': 1}, status=status.HTTP_200_OK)
+        try:
+            pass
+            models.Room.objects.filter(room_no__in=request.data['rooms'])
+        except KeyError:
+            pass
+        return Response({'message': 'Successfully Deleted!', 'error': 0}, status=status.HTTP_200_OK)
 
 # End of Room Views
 
@@ -145,6 +144,7 @@ class RoomRetrieveUpdateDeleteView(RetrieveUpdateDestroyAPIView):
 
 @csrf_exempt
 @api_view(('POST',))
+
 def RoomBookingView(request):
     try:
         rooms = request.data['rooms']
@@ -153,6 +153,7 @@ def RoomBookingView(request):
         end_date = datetime.datetime.strptime(request.data['end_date'], "%Y/%m/%d %I:%M %p")
         booked_by = request.user
         booking_type = request.data['booking_type']
+        proof = request.data['proof']
     except KeyError:
         return Response({'message': 'Fill the form completely', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -166,7 +167,7 @@ def RoomBookingView(request):
             reference = ''.join([choice(string.ascii_letters + string.digits) for i in range(22)])
             with transaction.atomic():
                 booking = models.Bookings.objects.create(reference=reference, start_date=start_date,
-                                                         end_date=end_date, booked_by=booked_by)
+                                                         end_date=end_date, booked_by=booked_by, proof=proof)
                 if booking_type == 'Online':
                     booking.booking_type = True
                 else:
@@ -215,7 +216,7 @@ def RoomBookingView(request):
         reference = ''.join([choice(string.ascii_letters + string.digits) for i in range(22)])
         with transaction.atomic():
             booking = models.Bookings.objects.create(reference=reference, start_date=start_date,
-                                                     end_date=end_date, booked_by=booked_by)
+                                                     end_date=end_date, booked_by=booked_by, proof=proof)
             if booking_type == 'Online':
                 booking.booking_type = True
             else:
@@ -227,6 +228,10 @@ def RoomBookingView(request):
 
             booking.save()
         return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
+
+
+class RoomUpdateDeleteView(RetrieveUpdateDestroyAPIView):
+    pass
 
 
 @csrf_exempt

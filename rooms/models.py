@@ -43,6 +43,8 @@ class Bookings(models.Model):
     booked_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     booking_type = models.BooleanField(default=False)
     user_booked = models.CharField(max_length=40, null=True, blank=True)
+    proof = models.FileField(upload_to='uploads/id_proofs', blank=True, null=True)
+    checkedin = models.BooleanField(default=False)
 
     def __str__(self):
         return self.reference

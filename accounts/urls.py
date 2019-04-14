@@ -39,5 +39,8 @@ urlpatterns = [
     # AdminLinkGenerate and Register urls
     url(r'^admin-link/$', views.GenerateAdminLink.as_view()),
     url(r'^validate/adminlink/$', views.ValidateAdminLink.as_view()),
-    url(r'^admin-register/(?P<link>\w+)/$', views.AdminCreateView.as_view())
+    url(r'^admin-register/(?P<link>\w+)/$', views.AdminCreateView.as_view()),
+
+    # Disable/Enable User
+    url(r'^update/access/(?P<pk>\d+)/$', views.DisableUser.as_view())
 ]

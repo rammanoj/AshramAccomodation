@@ -18,10 +18,18 @@ class BlockSerializer(serializers.ModelSerializer):
 
 class RoomListSerializer(serializers.ModelSerializer):
     block = BlockSerializer()
+    blocked = serializers.SerializerMethodField()
+
+    def get_blocked(self, obj):
+        blocked = models.BlockedRooms.objects.filter(room_no=obj)
+        if blocked.exists():
+            return True
+        else:
+            return False
 
     class Meta:
         model = models.Room
-        fields = ['pk', 'room_no', 'block', 'available']
+        fields = ['pk', 'room_no', 'block', 'blocked']
 
 
 class UserBookingSerializer(serializers.ModelSerializer):

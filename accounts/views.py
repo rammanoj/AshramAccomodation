@@ -68,6 +68,9 @@ class UserLoginView(LoginView):
 
         user = authenticate(username=username_or_email, password=password)
         if user is None:
+            if getUser.exists() and getUser[0].check_password(password) and not getUser[0].is_active:
+                return Response({'message': 'You account has been disabled, contact admin for more info', 'error': 1 },
+                                status=status.HTTP_400_BAD_REQUEST)
             return Response({'message': 'No user found as per given credentials', 'error': 1},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -82,6 +85,25 @@ class UserLoginView(LoginView):
         context['user'] = user.groups.all()[0].name
 
         return Response(context, status=status.HTTP_200_OK)
+
+
+class DisableUser(APIView):
+
+    def post(self, request, *args, **kwargs):
+        try:
+            disable = request.data['disable']
+        except KeyError:
+            return Response({'message': 'Enter all the details', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+        if disable not in [True, False]:
+            return Response({'message': 'enter valid value!', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = get_object_or_404(User, pk=self.kwargs['pk'])
+        if request.user != user:
+            user.is_active = not disable
+            user.save()
+            AuthToken.objects.filter(user=user).delete()
+        return Response({'message': 'Successfully performed the operation', 'error': 0})
 
 
 # Logout User
@@ -484,7 +506,11 @@ class UserListView(ListAPIView):
     search_fields = ('username',)
 
     def get_queryset(self):
+        search = self.request.GET.get('search', None)
+        if search is None:
             return User.objects.all()
+        else:
+            return User.objects.filter(username__contains=search)
 
     def get(self, request, *args, **kwargs):
         if request.user.groups.all()[0].name != 'Admin':

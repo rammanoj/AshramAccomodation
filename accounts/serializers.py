@@ -128,9 +128,18 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class UserListSerializer(serializers.ModelSerializer):
+    mobile = serializers.SerializerMethodField()
+    disabled = serializers.SerializerMethodField()
+
+    def get_disabled(self, obj):
+        return not obj.is_active
+
+    def get_mobile(self, obj):
+        return obj.profile.mobile
+
     class Meta:
         model = User
-        fields = ('username', 'pk', 'email')
+        fields = ('username', 'pk', 'email', 'mobile', 'disabled')
         read_only_fields = ('pk',)
 
 
