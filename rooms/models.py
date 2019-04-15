@@ -52,7 +52,7 @@ class Bookings(models.Model):
 
 class BlockedRooms(models.Model):
     room_no = models.ForeignKey(Room, on_delete=models.CASCADE, unique=True)
-    blocked_by = models.ForeignKey(User, on_delete=models.CASCADE, unique=True)
+    blocked_by = models.ForeignKey(User, on_delete=models.CASCADE)
     blocked_on = models.DateTimeField()
 
     def __str__(self):

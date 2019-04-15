@@ -21,7 +21,15 @@ urlpatterns = [
 
     url('^booking/delete/(?P<pk>\d+)/$', views.UserBookingDeleteView.as_view()),
 
-    url('^delete/$', views.RoomDeleteView.as_view())
+    url('^delete/$', views.RoomDeleteView.as_view()),
+
+    url('^blockroom/$', views.RoomBlockView.as_view()),
+
+    url('^update/status/(?P<pk>\d+)/$', views.RoomStatusUpdateAPIView.as_view()),
+
+    url('^booking/delete/(?P<pk>\d+)/$', views.RoomBookingDeleteView.as_view()),
+
+    url('^booking/update/(?P<pk>\d+)/$', views.RoomBookingUpdateView)
 
 ]
 
