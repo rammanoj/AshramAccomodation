@@ -47,6 +47,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+	'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
@@ -162,6 +163,6 @@ CORS_ORIGIN_WHITELIST = 'localhost:3000',
 
 
 try:
-    from .local_settings import *
+    from .local_settings_sample import *
 except ImportError:
     pass
