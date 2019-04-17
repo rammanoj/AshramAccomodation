@@ -159,7 +159,7 @@ REST_KNOX = {
     'TOKEN_TTL': timedelta(hours=24),
 }
 
-CORS_ORIGIN_ALLOW_ALL = True,
+CORS_ORIGIN_ALLOW_ALL = True
 
 
 try:
