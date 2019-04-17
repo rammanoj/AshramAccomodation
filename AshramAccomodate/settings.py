@@ -26,7 +26,7 @@ SECRET_KEY = 'c*#rlz!dmj5n_#+%3ol#py4j_h&&5na*6vp@wd9%_q13x$vmt8'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 BASE_URL = 'http://ashramaccomodate.herokuapp.com'
 
 
@@ -159,7 +159,7 @@ REST_KNOX = {
     'TOKEN_TTL': timedelta(hours=24),
 }
 
-CORS_ORIGIN_WHITELIST = 'localhost:3000',
+CORS_ORIGIN_ALLOW_ALL = True,
 
 
 try:
