@@ -266,85 +266,59 @@ def RoomBookingUpdateView(request, pk):
         start_date = datetime.datetime.strptime(request.data['start_date'], "%Y/%m/%d %I:%M %p")
         end_date = datetime.datetime.strptime(request.data['end_date'], "%Y/%m/%d %I:%M %p")
         proof = request.data['proof']
+        reference = request.data['reference']
     except KeyError:
         return Response({'message': 'Fill the form completely', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
 
-    print(start_date)
-    print(end_date)
-    print(timezone.now())
-
-    if start_date < timezone.now() or end_date < timezone.now():
-        return Response({'message': 'Invalid dates provided', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-
-    if end_date < start_date:
-        return Response({'message': 'End date can not be greater to start date.', 'error': 1},
-                        status=status.HTTP_400_BAD_REQUEST)
-
     booking = get_object_or_404(models.Bookings, pk=pk)
-
-    if booking.start_date == start_date and booking.end_date == end_date and proof != '':
-        booking.proof = proof
-        booking.save()
-        return Response({'message': 'Successfully updated booking', 'error': 0})
-    elif booking.start_date == start_date and booking.end_date == end_date:
-        return Response({'message': 'Successfully updated booking', 'error': 0})
 
     # Check if proof is updated.
     if proof != '' and request.user != booking.booked_by:
         return Response({'message': "Permission denied"})
 
     # Get the Avialable rooms excluding the current one.
-    rooms = list(models.Room.objects.all().values_list('room_no', flat=True))
-    error = -1
-    try:
-        with transaction.atomic():
-            # Remove the rooms in the booking.
-            capacity = sum(i.capacity for i in booking.rooms.all())
-            booking.rooms.set([])
-            # get the avialable rooms.
-            avialable = checkRoomAvialability(start_date, end_date, rooms)
-            avialable_rooms = []
 
-            for i in range(0, len(rooms)):
-                if avialable[i] is True:
-                    avialable_rooms.append(models.Room.objects.get(room_no=rooms[i]))
+    rooms = list(models.Room.objects.all().values_list(flat=True))
+    avialable = checkRoomAvialability(start_date, end_date, rooms)
 
-            avialable_rooms.sort(key=lambda x: x.capacity, reverse=True)
+    avialable_rooms = []
+    for i in range(0, len(rooms)):
+        if avialable[i] is True:
+            avialable_rooms.append(models.Room.objects.get(room_no=rooms[i]))
 
-            rv_rooms, remove_rooms = [], []
-            for i in avialable_rooms:
-                capacity = capacity - i.capacity
-                if capacity < 0:
-                    capacity = capacity + i.capacity
-                    try:
-                        new_avialable = list(set(avialable_rooms) - set(remove_rooms))
-                        v = min(new_avialable, key=lambda x: (x.capacity - capacity)
-                        if (x.capacity - capacity) >= 0 else sys.maxsize)
-                        capacity = capacity - v.capacity
-                        rv_rooms.append(v)
-                    except ValueError:
-                        pass
-                    break
-                rv_rooms.append(i)
-                remove_rooms.append(i)
+    avialable_rooms.sort(key=lambda x: x.capacity, reverse=True)
 
-            if (len(avialable_rooms) == 0 and capacity > 0) or capacity > 0:
-                error = 1
-                raise InterruptedError
+    capacity = 0
+    for i in booking.rooms:
+        capacity += int(i.capacity)
 
-            booking.start_date = start_date
-            booking.end_date = end_date
-            if proof != '':
-                booking.proof = proof
+    rv_rooms, remove_rooms = [], []
+    for i in avialable_rooms:
+        capacity = capacity - i.capacity
+        if capacity < 0:
+            capacity = capacity + i.capacity
+            try:
+                new_avialable = list(set(avialable_rooms) - set(remove_rooms))
+                v = min(new_avialable, key=lambda x: (x.capacity - capacity)
+                if (x.capacity - capacity) >= 0 else sys.maxsize)
+                capacity = capacity - v.capacity
+                rv_rooms.append(v)
+            except ValueError:
+                pass
+            break
+        rv_rooms.append(i)
+        remove_rooms.append(i)
 
-            booking.rooms.set(rv_rooms)
-            booking.save()
-    except InterruptedError:
-        if error is 1:
-            return Response({'message': 'Rooms not avialable for specified constraints', 'error': 1},
-                            status=status.HTTP_400_BAD_REQUEST)
-        else:
-            pass
+    if (len(avialable_rooms) == 0 and capacity > 0) or capacity > 0:
+        return Response({'message': 'Rooms not avialable for specified constraints', 'error': 1},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    with transaction.atomic():
+
+        for i in rv_rooms:
+            booking.rooms.add(i)
+
+        booking.save()
     return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
 
 
