@@ -17,7 +17,7 @@ class Room(models.Model):
         ('AC', 'AC Rooms'),
         ('N-AC', 'Non-AC Rooms')
     )
-    room_no = models.CharField(max_length=20)
+    room_no = models.CharField(max_length=20, unique=True)
     block = models.ForeignKey(Block, on_delete=models.CASCADE)
     floor = models.IntegerField(default=0)
     capacity = models.IntegerField(default=1)
