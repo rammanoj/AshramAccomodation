@@ -27,7 +27,7 @@ SECRET_KEY = 'c*#rlz!dmj5n_#+%3ol#py4j_h&&5na*6vp@wd9%_q13x$vmt8'
 DEBUG = True
 
 ALLOWED_HOSTS = ['*']
-BASE_URL = 'http://ashramaccomodate.herokuapp.com'
+BASE_URL = 'http://aabsoftware.herokuapp.com/'
 
 
 # Application definition
