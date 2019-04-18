@@ -29,7 +29,7 @@ def sendsms(mobile, code, *args):
         body['sms'][0]['message'] = content.create_booking_mobile['subject']
         body['sms'][0]['to'].append(str(mobile))
     elif args[0] == 2:
-        body['sms'][0]['message'] = content.create_booking_mobile['subject']
+        body['sms'][0]['message'] = content.update_booking_mobile['subject']
         body['sms'][0]['to'].append(str(mobile))
 
     a = requests.post(uri, data=json.dumps(body), headers=headers)

@@ -382,25 +382,6 @@ def RoomBookingUpdateView(request, pk):
     return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
 
 
-class RoomBookingDeleteView(DestroyAPIView):
-
-    def get_object(self):
-        return get_object_or_404(models.Bookings, pk=self.kwargs['pk'])
-
-    def delete(self, request, *args, **kwargs):
-        if request.user.groups.all()[0].name != 'Admin':
-            if request.user != self.get_object().booked_by:
-                return Response({'message': 'Permission Denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-
-        if self.get_object().start_date > timezone.now():
-            self.get_object().delete()
-            notifyuser(self.get_object(), 3)
-            return Response({'message': 'Successfully canceled the booking', 'error': 0})
-        else:
-            return Response({'message': 'You can not cancel the booking after the from date', 'error': 1},
-                            status=status.HTTP_200_OK)
-
-
 class RoomStatusUpdateAPIView(APIView):
 
     def post(self, request, *args, **kwargs):
@@ -458,11 +439,19 @@ class UserBookingsView(ListAPIView):
 
 class UserBookingDeleteView(DestroyAPIView):
 
+    def get_object(self):
+        print("came here")
+        return get_object_or_404(models.Bookings, pk=self.kwargs['pk'])
+
     def delete(self, request, *args, **kwargs):
-        if request.user != "Admin":
-            booking = models.Bookings.objects.filter(pk=self.kwargs['pk'])
-            if booking.exists():
-                if booking[0].booked_by != request.user:
-                    return Response({'message': 'Permission Denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
-        models.Bookings.objects.filter(pk=self.kwargs['pk']).delete()
-        return Response({'message': 'successfully deleted', 'error': 0})
+        print(request.user.groups.all()[0].name)
+        if request.user.groups.all()[0].name != 'Admin':
+            if request.user != self.get_object().booked_by:
+                return Response({'message': 'Permission Denied', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
+
+        if self.get_object().start_date > timezone.now():
+            self.get_object().delete()
+            return Response({'message': 'Successfully canceled the booking', 'error': 0})
+        else:
+            return Response({'message': 'You can not cancel the booking after the from date', 'error': 1},
+                            status=status.HTTP_200_OK)
