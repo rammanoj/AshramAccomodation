@@ -129,7 +129,8 @@ class RoomListView(ListAPIView):
                                           list(self.get_queryset().values_list('room_no', flat=True)))
 
         for i in context.data['results']:
-            if i.room_no in avialable:
+            print(i)
+            if i['room_no'] in avialable:
                 i['avialable'] = True
             else:
                 i['avialable'] = False
