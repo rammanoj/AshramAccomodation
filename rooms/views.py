@@ -10,8 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
-from rest_framework.decorators import renderer_classes, api_view, authentication_classes, permission_classes
-from rest_framework.renderers import JSONRenderer, TemplateHTMLRenderer
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -22,30 +21,34 @@ from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIV
 
 # Checking function
 def checkRoomAvialability(start_date, end_date, rooms):
-    include = [True] * len(rooms)
-    blocked_rooms = list(models.BlockedRooms.objects.all().values_list('room_no'))
+    rv_rooms = rooms[:]
+    blocked_rooms = list(models.BlockedRooms.objects.all().values_list('room_no', flat=True))
 
     # Exclude the blocked rooms from the list
     for i in blocked_rooms:
-        if i in rooms:
-            include[rooms.index(i)] = False
+        try:
+            rv_rooms.remove(i)
+        except ValueError:
+            pass
 
     # Exclude the booked rooms from the list
-    booked_rooms = models.Bookings.objects.filter(rooms__room_no__in=rooms).distinct()
-    if booked_rooms.exists():
-        for i in booked_rooms:
-            if i.rooms is None:
+    bookings = models.Bookings.objects.filter(rooms__room_no__in=rooms).distinct()
+    if bookings.exists():
+        for i in bookings:
+
+            if not i.rooms.all().exists():
                 continue
-            bookedroom = list(i.rooms.values_list('room_no', flat=True))
-            rooms_booked = list(set(rooms).intersection(bookedroom))
-            if len(rooms_booked) != 0:
-                for j in rooms_booked:
-                    if (i.start_date < start_date and i.end_date < start_date) or (i.start_date > end_date
-                                                                                   and i.end_date > end_date):
+
+            if (i.start_date < start_date and i.end_date < start_date) or \
+                    (i.start_date > end_date and i.end_date > end_date):
+                pass
+            else:
+                for j in i.rooms.all():
+                    try:
+                        rv_rooms.remove(j.room_no)
+                    except ValueError:
                         pass
-                    else:
-                        include[rooms.index(j)] = False
-    return include
+    return rv_rooms
 
 
 class RoomBlockView(APIView):
@@ -124,8 +127,13 @@ class RoomListView(ListAPIView):
         now = timezone.now()
         avialable = checkRoomAvialability(now, now + datetime.timedelta(days=1),
                                           list(self.get_queryset().values_list('room_no', flat=True)))
-        for i in range(0, len(context.data['results'])):
-            context.data['results'][i]['avialable'] = avialable[i]
+
+        for i in context.data['results']:
+            if i.room_no in avialable:
+                i['avialable'] = True
+            else:
+                i['avialable'] = False
+
         return context
 
 
@@ -192,7 +200,8 @@ def RoomBookingView(request):
     if len(rooms) != 0:
         avialable = checkRoomAvialability(start_date, end_date, rooms)
 
-        if all(i is True for i in avialable):
+        if len(list(set(rooms) - set(avialable))) == 0:
+            # Through above statement all the elements present in 'rooms' will be in 'avialable'
             reference = ''.join([choice(string.ascii_letters + string.digits) for i in range(22)])
             with transaction.atomic():
                 booking = models.Bookings.objects.create(reference=reference, start_date=start_date,
@@ -210,15 +219,14 @@ def RoomBookingView(request):
                 booking.save()
             return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
         else:
-            return Response({'message': 'room ' + rooms[avialable.index(False)] + ' is already booked', 'error': 1},
+            return Response({'message': 'room ' + list(set(rooms) - set(avialable))[0] + ' is already booked', 'error': 1},
                             status=status.HTTP_400_BAD_REQUEST)
     else:
         rooms = list(models.Room.objects.all().values_list('room_no', flat=True))
         avialable = checkRoomAvialability(start_date, end_date, rooms)
         avialable_rooms = []
-        for i in range(0, len(rooms)):
-            if avialable[i] is True:
-                avialable_rooms.append(models.Room.objects.get(room_no=rooms[i]))
+        for i in avialable:
+                avialable_rooms.append(get_object_or_404(models.Room, room_no=i))
 
         avialable_rooms.sort(key=lambda x: x.capacity, reverse=True)
 
@@ -269,10 +277,6 @@ def RoomBookingUpdateView(request, pk):
     except KeyError:
         return Response({'message': 'Fill the form completely', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
 
-    print(start_date)
-    print(end_date)
-    print(timezone.now())
-
     if start_date < timezone.now() or end_date < timezone.now():
         return Response({'message': 'Invalid dates provided', 'error': 1}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -305,9 +309,8 @@ def RoomBookingUpdateView(request, pk):
             avialable = checkRoomAvialability(start_date, end_date, rooms)
             avialable_rooms = []
 
-            for i in range(0, len(rooms)):
-                if avialable[i] is True:
-                    avialable_rooms.append(models.Room.objects.get(room_no=rooms[i]))
+            for i in avialable:
+                    avialable_rooms.append(get_object_or_404(models.Room, room_no=i))
 
             avialable_rooms.sort(key=lambda x: x.capacity, reverse=True)
 
@@ -395,9 +398,8 @@ def searchRooms(request):
             rooms = list(models.Room.objects.all().values_list('room_no', flat=True))
             avialable = checkRoomAvialability(start_datetime, end_datetime, rooms)
             rv = []
-            for i in range(0, len(rooms)):
-                if avialable[i] is True:
-                    room = models.Room.objects.get(room_no=rooms[i])
+            for i in avialable:
+                    room = get_object_or_404(models.Room, room_no=rooms[i])
                     rv.append({"room": room.room_no, "capacity": room.capacity, "block": room.block.name})
 
             return Response({"rooms": rv})
