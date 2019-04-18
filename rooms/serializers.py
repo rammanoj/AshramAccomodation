@@ -29,7 +29,7 @@ class RoomListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Room
-        fields = ['pk', 'room_no', 'block', 'blocked']
+        fields = ['pk', 'room_no', 'block', 'blocked', 'capacity']
 
 
 class UserBookingSerializer(serializers.ModelSerializer):
