@@ -17,6 +17,7 @@ from . import serializers, models
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, CreateAPIView, \
     DestroyAPIView
 
+
 # Notifies the user
 def notifyuser(booking, type):
     if booking.booking_type is False:
@@ -24,9 +25,11 @@ def notifyuser(booking, type):
 
     email, mobile, args, kwargs = booking.booked_by.email, booking.booked_by.profile.mobile, [], {}
     kwargs['reference'] = booking.reference
-    kwargs['rooms'] = ''.join(str(i)+',' for i in booking.rooms)[:-1]
-    kwargs['start_date'] = booking.start_date
-    kwargs['end_date'] = booking.end_date
+    kwargs['rooms'] = ''.join(str(i.room_no)+',' for i in booking.rooms.all())[:-1]
+    l = list(set(i.block.name for i in booking.rooms.all()))
+    kwargs['blocks'] = ''.join(str(j) + "," for j in l)[:-1]
+    kwargs['start_date'] = booking.start_date.strftime("%Y %M %d %H:%m")
+    kwargs['end_date'] = booking.end_date.strftime("%Y %M %d %H:%m")
     kwargs['proof'] = booking.proof
     kwargs['mail_type'] = type + 2
     mails.main(to_mail=email, *args, **kwargs)
@@ -34,6 +37,7 @@ def notifyuser(booking, type):
     if type == 3:
         return 0
     else:
+        pass
         sendsms.sendsms(mobile, '', type)
     return 0
 

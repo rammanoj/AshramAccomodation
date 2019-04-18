@@ -6,19 +6,24 @@ from AshramAccomodate.settings import STATIC_ROOT
 from email.mime.text import MIMEText
 from . import content
 import base64
-
+from AshramAccomodate import settings
 
 SEND_MAIL = 'rammanojpotla1608@gmail.com'
 SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.modify',
           'https://www.googleapis.com/auth/gmail.send']
 
 
-def makehtml(kwargs):
+def makehtml(**kwargs):
+    print(kwargs)
     content = '<table style="width:100%">'
     for i in kwargs:
         if i == 'mail_type':
             continue
-        content += '<tr><th>' + i + '</th><td>' + content[i] + '</td></tr>'
+
+        value = kwargs[i]
+        if i is 'proof':
+            value = settings.BASE_URL + "media/" + kwargs[i].name
+        content += '<tr><th>' + i + '</th><td>' + value + '</td></tr>'
 
     content += '</table>'
     return content
@@ -47,13 +52,13 @@ def send_mail(service, to_mail, *args, **kwargs):
 
     elif kwargs['mail_type'] == 3:
         # user Booked a Room
-        contents = content.create_booking['message'] + makehtml(kwargs)
+        contents = content.create_booking['message'] + makehtml(**kwargs)
         message = MIMEText(contents, 'html')
         message['subject'] = content.create_booking['subject']
     elif kwargs['mail_type'] == 4:
 
         # user updated the booking
-        contents = content.update_booking['message'] + makehtml(kwargs)
+        contents = content.update_booking['message'] + makehtml(**kwargs)
         message = MIMEText(contents, 'html')
         message['subject'] = content.update_booking['subject']
 
