@@ -3,9 +3,7 @@ import string
 import sys
 from random import choice
 from django.db import transaction
-from django.db.models import Q
 import datetime
-from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -13,10 +11,31 @@ from rest_framework import status
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
+from accounts import mails
+from accounts import sendsms
 from . import serializers, models
 from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIView, ListAPIView, CreateAPIView, \
     DestroyAPIView
+
+# Notifies the user
+def notifyuser(booking, type):
+    if booking.booking_type is False:
+        return 0
+
+    email, mobile, args, kwargs = booking.booked_by.email, booking.booked_by.profile.mobile, [], {}
+    kwargs['reference'] = booking.reference
+    kwargs['rooms'] = ''.join(str(i)+',' for i in booking.rooms)[:-1]
+    kwargs['start_date'] = booking.start_date
+    kwargs['end_date'] = booking.end_date
+    kwargs['proof'] = booking.proof
+    kwargs['mail_type'] = type + 2
+    mails.main(to_mail=email, *args, **kwargs)
+
+    if type == 3:
+        return 0
+    else:
+        sendsms.sendsms(mobile, '', type)
+    return 0
 
 
 # Checking function
@@ -220,6 +239,7 @@ def RoomBookingView(request):
                     booking.rooms.add(room)
 
                 booking.save()
+                notifyuser(booking, 1)
             return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
         else:
             return Response({'message': 'room ' + list(set(rooms) - set(avialable))[0] + ' is already booked', 'error': 1},
@@ -267,6 +287,7 @@ def RoomBookingView(request):
                 booking.rooms.add(i)
 
             booking.save()
+            notifyuser(booking, 1)
         return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
 
 
@@ -292,8 +313,10 @@ def RoomBookingUpdateView(request, pk):
     if booking.start_date == start_date and booking.end_date == end_date and proof != '':
         booking.proof = proof
         booking.save()
+        notifyuser(booking, 2)
         return Response({'message': 'Successfully updated booking', 'error': 0})
     elif booking.start_date == start_date and booking.end_date == end_date:
+        notifyuser(booking, 2)
         return Response({'message': 'Successfully updated booking', 'error': 0})
 
     # Check if proof is updated.
@@ -351,6 +374,7 @@ def RoomBookingUpdateView(request, pk):
                             status=status.HTTP_400_BAD_REQUEST)
         else:
             pass
+    notifyuser(booking, 2)
     return Response({'message': 'Booked rooms successfully!!!', 'error': 0})
 
 
@@ -366,6 +390,7 @@ class RoomBookingDeleteView(DestroyAPIView):
 
         if self.get_object().start_date > timezone.now():
             self.get_object().delete()
+            notifyuser(self.get_object(), 3)
             return Response({'message': 'Successfully canceled the booking', 'error': 0})
         else:
             return Response({'message': 'You can not cancel the booking after the from date', 'error': 1},
@@ -402,7 +427,6 @@ def searchRooms(request):
             avialable = checkRoomAvialability(start_datetime, end_datetime, rooms)
             rv = []
             for i in avialable:
-                print(i)
                 room = get_object_or_404(models.Room, room_no=i)
                 rv.append({"room": room.room_no, "capacity": room.capacity, "block": room.block.name})
 

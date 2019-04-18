@@ -63,7 +63,8 @@ class UserLoginView(LoginView):
                 mobile.created_time = timezone.now() + datetime.timedelta(minutes=10)
                 mobile.code = random.randint(100001, 999999)
                 mobile.save()
-                sendsms.sendsms(mobile=mobile.mobile, code=mobile.code)
+                args = [0]
+                sendsms.sendsms(mobile=mobile.mobile, code=mobile.code, *args)
                 return Response({'message': mobile.mobile, 'error': -1}, status=status.HTTP_400_BAD_REQUEST)
 
         user = authenticate(username=username_or_email, password=password)
@@ -264,7 +265,8 @@ class ResendMobileVerify(APIView):
         verify.created_time = timezone.now() + datetime.timedelta(minutes=10)
         verify.code = random.randint(100001, 999999)
         verify.save()
-        sendsms.sendsms(mobile, verify.code)
+        args = [0]
+        sendsms.sendsms(mobile, verify.code, *args)
         return Response({'message': 'Message sent', 'error': 0}, status=status.HTTP_200_OK)
 
 
@@ -360,7 +362,8 @@ class UserUpdateView(RetrieveUpdateAPIView):
                 mobile_verify.save()
             else:
                 models.MobileVerification.objects.create(user=request.user, code=code, created_time=time, mobile=mobile)
-            sendsms.sendsms(mobile=mobile, code=code)
+            args = [0]
+            sendsms.sendsms(mobile=mobile, code=code, *args)
         context = super(UserUpdateView, self).patch(request, *args, **kwargs)
         if email_change == 1 and mobile_change == 1:
             context.data['message'] = 'A validation message is sent to your mobile and email'

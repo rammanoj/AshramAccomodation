@@ -13,7 +13,18 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.compose', 'https://www.googleap
           'https://www.googleapis.com/auth/gmail.send']
 
 
-def send_mail(service, to_mail, **kwargs):
+def makehtml(kwargs):
+    content = '<table style="width:100%">'
+    for i in kwargs:
+        if i == 'mail_type':
+            continue
+        content += '<tr><th>' + i + '</th><td>' + content[i] + '</td></tr>'
+
+    content += '</table>'
+    return content
+
+
+def send_mail(service, to_mail, *args, **kwargs):
     message = {}
     if kwargs['mail_type'] == 0:
         # user registration
@@ -33,6 +44,24 @@ def send_mail(service, to_mail, **kwargs):
                   kwargs['id'] + content.forgot_password['post_message']
         message = MIMEText(contents, 'html')
         message['subject'] = content.forgot_password['subject']
+
+    elif kwargs['mail_type'] == 3:
+        # user Booked a Room
+        contents = content.create_booking['message'] + makehtml(kwargs)
+        message = MIMEText(contents, 'html')
+        message['subject'] = content.create_booking['subject']
+    elif kwargs['mail_type'] == 4:
+
+        # user updated the booking
+        contents = content.update_booking['message'] + makehtml(kwargs)
+        message = MIMEText(contents, 'html')
+        message['subject'] = content.update_booking['subject']
+
+    elif kwargs['mail_type'] == 5:
+        # user Deleted Booking
+        contents = content.delete_booking['message'] + kwargs['reference']
+        message = MIMEText(contents, 'html')
+        message['subject'] = content.delete_booking['subject']
 
     message['to'] = to_mail
     message['from'] = SEND_MAIL
