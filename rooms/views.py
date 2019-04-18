@@ -22,7 +22,10 @@ from rest_framework.generics import ListCreateAPIView, RetrieveUpdateDestroyAPIV
 # Checking function
 def checkRoomAvialability(start_date, end_date, rooms):
     rv_rooms = rooms[:]
-    blocked_rooms = list(models.BlockedRooms.objects.all().values_list('room_no', flat=True))
+    blocked_rooms = []
+    block = models.BlockedRooms.objects.all()
+    for i in block:
+        blocked_rooms.append(i.room_no.room_no)
 
     # Exclude the blocked rooms from the list
     for i in blocked_rooms:
@@ -129,7 +132,6 @@ class RoomListView(ListAPIView):
                                           list(self.get_queryset().values_list('room_no', flat=True)))
 
         for i in context.data['results']:
-            print(i)
             if i['room_no'] in avialable:
                 i['avialable'] = True
             else:
@@ -400,8 +402,9 @@ def searchRooms(request):
             avialable = checkRoomAvialability(start_datetime, end_datetime, rooms)
             rv = []
             for i in avialable:
-                    room = get_object_or_404(models.Room, room_no=i)
-                    rv.append({"room": room.room_no, "capacity": room.capacity, "block": room.block.name})
+                print(i)
+                room = get_object_or_404(models.Room, room_no=i)
+                rv.append({"room": room.room_no, "capacity": room.capacity, "block": room.block.name})
 
             return Response({"rooms": rv})
         except KeyError:
