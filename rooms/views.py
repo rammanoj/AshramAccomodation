@@ -399,7 +399,7 @@ def searchRooms(request):
             avialable = checkRoomAvialability(start_datetime, end_datetime, rooms)
             rv = []
             for i in avialable:
-                    room = get_object_or_404(models.Room, room_no=rooms[i])
+                    room = get_object_or_404(models.Room, room_no=i)
                     rv.append({"room": room.room_no, "capacity": room.capacity, "block": room.block.name})
 
             return Response({"rooms": rv})
